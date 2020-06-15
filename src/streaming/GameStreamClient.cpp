@@ -13,28 +13,32 @@
 static std::mutex m_async_mutex;
 static std::vector<std::function<void()>> m_tasks;
 
-#ifdef __SWITCH__
-#include <switch.h>
-extern int moonlight_exit;
+static volatile bool task_loop_active = true;
 
 static void task_loop() {
-    Thread thread;
+    while (task_loop_active) {
+        std::vector<std::function<void()>> m_tasks_copy; {
+            std::lock_guard<std::mutex> guard(m_async_mutex);
+            m_tasks_copy = m_tasks;
+            m_tasks.clear();
+        }
+        
+        for (auto task: m_tasks_copy) {
+            task();
+        }
+        
+        usleep(500'000);
+    }
+}
+
+#ifdef __SWITCH__
+#include <switch.h>
+static Thread task_loop_thread;
+static void start_task_loop() {
     threadCreate(
-        &thread,
+        &task_loop_thread,
         [](void* a) {
-            while (!moonlight_exit) {
-                std::vector<std::function<void()>> m_tasks_copy; {
-                    std::lock_guard<std::mutex> guard(m_async_mutex);
-                    m_tasks_copy = m_tasks;
-                    m_tasks.clear();
-                }
-
-                for (auto task: m_tasks_copy) {
-                    task();
-                }
-
-                usleep(500'000);
-            }
+            task_loop();
         },
         NULL,
         NULL,
@@ -42,24 +46,12 @@ static void task_loop() {
         0x2C,
         -2
     );
-    threadStart(&thread);
+    threadStart(&task_loop_thread);
 }
 #else
-static void task_loop() {
+static void start_task_loop() {
     auto thread = std::thread([](){
-        while (1) {
-            std::vector<std::function<void()>> m_tasks_copy; {
-                std::lock_guard<std::mutex> guard(m_async_mutex);
-                m_tasks_copy = m_tasks;
-                m_tasks.clear();
-            }
-            
-            for (auto task: m_tasks_copy) {
-                task();
-            }
-            
-            usleep(500'000);
-        }
+        task_loop();
     });
     thread.detach();
 }
@@ -71,7 +63,16 @@ void perform_async(std::function<void()> task) {
 }
 
 GameStreamClient::GameStreamClient() {
-    task_loop();
+    start_task_loop();
+}
+
+void GameStreamClient::stop() {
+    task_loop_active = false;
+    
+    #ifdef __SWITCH__
+    threadWaitForExit(&task_loop_thread);
+    threadClose(&task_loop_thread);
+    #endif
 }
 
 void GameStreamClient::connect(const std::string &address, ServerCallback<SERVER_DATA> callback) {
@@ -79,14 +80,14 @@ void GameStreamClient::connect(const std::string &address, ServerCallback<SERVER
     
     perform_async([this, address, callback] {
         // TODO: mem leak here :(
-        int status = gs_init(&m_server_data[address], (char *)(new std::string(address))->c_str(), Settings::settings()->key_dir().c_str(), 0, false);
+        int status = gs_init(&m_server_data[address], (char *)(new std::string(address))->c_str(), Settings::settings()->key_dir().c_str(), false);
         
         nanogui::async([this, address, callback, status] {
             if (status == GS_OK) {
                 Settings::settings()->add_host(address);
                 callback(GSResult<SERVER_DATA>::success(m_server_data[address]));
             } else {
-                callback(GSResult<SERVER_DATA>::failure(gs_error != NULL ? gs_error : "Unknown error..."));
+                callback(GSResult<SERVER_DATA>::failure(gs_error()));
             }
         });
     });
@@ -105,7 +106,7 @@ void GameStreamClient::pair(const std::string &address, const std::string &pin, 
             if (status == GS_OK) {
                 callback(GSResult<bool>::success(true));
             } else {
-                callback(GSResult<bool>::failure(gs_error != NULL ? gs_error : "Unknown error..."));
+                callback(GSResult<bool>::failure(gs_error()));
             }
         });
     });
@@ -126,7 +127,7 @@ void GameStreamClient::applist(const std::string &address, ServerCallback<PAPP_L
             if (status == GS_OK) {
                 callback(GSResult<PAPP_LIST>::success(m_app_list[address]));
             } else {
-                callback(GSResult<PAPP_LIST>::failure(gs_error != NULL ? gs_error : "Unknown error..."));
+                callback(GSResult<PAPP_LIST>::failure(gs_error()));
             }
         });
     });
@@ -146,7 +147,7 @@ void GameStreamClient::app_boxart(const std::string &address, int app_id, Server
             if (status == GS_OK) {
                 callback(GSResult<Data>::success(data));
             } else {
-                callback(GSResult<Data>::failure(gs_error != NULL ? gs_error : "Unknown error..."));
+                callback(GSResult<Data>::failure(gs_error()));
             }
         });
     });
@@ -161,13 +162,13 @@ void GameStreamClient::start(const std::string &address, STREAM_CONFIGURATION co
     m_config = config;
     
     perform_async([this, address, app_id, callback] {
-        int status = gs_start_app(&m_server_data[address], &m_config, app_id, false, false, 0);
+        int status = gs_start_app(&m_server_data[address], &m_config, app_id, Settings::settings()->sops(), Settings::settings()->play_audio(), 0x1);
         
         nanogui::async([this, callback, status] {
             if (status == GS_OK) {
                 callback(GSResult<STREAM_CONFIGURATION>::success(m_config));
             } else {
-                callback(GSResult<STREAM_CONFIGURATION>::failure(gs_error != NULL ? gs_error : "Unknown error..."));
+                callback(GSResult<STREAM_CONFIGURATION>::failure(gs_error()));
             }
         });
     });
@@ -179,14 +180,16 @@ void GameStreamClient::quit(const std::string &address, ServerCallback<bool> cal
         return;
     }
     
-    perform_async([this, address, callback] {
-        int status = gs_quit_app(&m_server_data[address]);
+    auto server_data = m_server_data[address];
+    
+    perform_async([this, server_data, callback] {
+        int status = gs_quit_app((PSERVER_DATA)&server_data);
         
         nanogui::async([this, callback, status] {
             if (status == GS_OK) {
                 callback(GSResult<bool>::success(true));
             } else {
-                callback(GSResult<bool>::failure(gs_error != NULL ? gs_error : "Unknown error..."));
+                callback(GSResult<bool>::failure(gs_error()));
             }
         });
     });

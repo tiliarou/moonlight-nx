@@ -26,7 +26,7 @@
 #include <string.h>
 #include <Limelight.h>
 #include "CryptoManager.hpp"
-#include "Log.h"
+#include "Logger.hpp"
 
 #define CHANNEL_COUNT_STEREO 2
 #define CHANNEL_COUNT_51_SURROUND 6
@@ -35,7 +35,6 @@
 #define CHANNEL_MASK_51_SURROUND 0xFC
 
 static char* unique_id = "0123456789ABCDEF";
-const char* gs_error;
 
 static int load_server_status(PSERVER_DATA server) {
     int ret;
@@ -56,14 +55,12 @@ static int load_server_status(PSERVER_DATA server) {
         // make another request over HTTP if the HTTPS request fails. We can't just use HTTP
         // for everything because it doesn't accurately tell us if we're paired.
         
-        printf("server->serverInfo.address: %s\n", server->serverInfo.address);
-        
         snprintf(url, sizeof(url), "%s://%s:%d/serverinfo?uniqueid=%s",
                  i == 0 ? "https" : "http", server->serverInfo.address, i == 0 ? 47984 : 47989, unique_id);
         
         Data data;
         
-        if (http_request(url, &data) != GS_OK) {
+        if (http_request(url, &data, HTTPRequestTimeoutLow) != GS_OK) {
             ret = GS_IO_ERROR;
             goto cleanup;
         }
@@ -136,15 +133,28 @@ static int load_server_status(PSERVER_DATA server) {
     
     if (ret == GS_OK && !server->unsupported) {
         if (server->serverMajorVersion > MAX_SUPPORTED_GFE_VERSION) {
-            gs_error = "Ensure you're running the latest version of Moonlight Embedded or downgrade GeForce Experience and try again";
+            gs_set_error("Ensure you're running the latest version of Moonlight Embedded or downgrade GeForce Experience and try again");
             ret = GS_UNSUPPORTED_VERSION;
         } else if (server->serverMajorVersion < MIN_SUPPORTED_GFE_VERSION) {
-            gs_error = "Moonlight Embedded requires a newer version of GeForce Experience. Please upgrade GFE on your PC and try again.";
+            gs_set_error("Moonlight Embedded requires a newer version of GeForce Experience. Please upgrade GFE on your PC and try again.");
             ret = GS_UNSUPPORTED_VERSION;
         }
     }
     
     return ret;
+}
+
+static std::string _gs_error = "";
+
+void gs_set_error(std::string error) {
+    _gs_error = error;
+}
+
+std::string gs_error() {
+    if (_gs_error.empty()) {
+        return "Unknown error...";
+    }
+    return _gs_error;
 }
 
 int gs_unpair(PSERVER_DATA server) {
@@ -154,7 +164,7 @@ int gs_unpair(PSERVER_DATA server) {
     Data data;
     
     snprintf(url, sizeof(url), "http://%s:47989/unpair?uniqueid=%s", server->serverInfo.address, unique_id);
-    ret = http_request(url, &data);
+    ret = http_request(url, &data, HTTPRequestTimeoutLow);
     return ret;
 }
 
@@ -200,25 +210,25 @@ int gs_pair(PSERVER_DATA server, char* pin) {
     char url[4096];
     
     if (server->paired) {
-        gs_error = "Already paired";
+        gs_set_error("Already paired");
         return GS_WRONG_STATE;
     }
     
     if (server->currentGame != 0) {
-        gs_error = "The computer is currently in a game. You must close the game before pairing";
+        gs_set_error("The computer is currently in a game. You must close the game before pairing");
         return GS_WRONG_STATE;
     }
     
-    LOG_FMT("Pairing with generation %d server\n", server->serverMajorVersion);
-    LOG("Start pairing stage #1\n");
+    Logger::info("Client", "Pairing with generation %d server", server->serverMajorVersion);
+    Logger::info("Client", "Start pairing stage #1");
     
     Data salt = Data::random_bytes(16);
     Data salted_pin = salt.append(Data(pin, strlen(pin)));
-    LOG_FMT("PIN: %s, salt %s\n", pin, salt.hex().bytes());
+    Logger::info("Client", "PIN: %s, salt %s", pin, salt.hex().bytes());
     
     snprintf(url, sizeof(url), "http://%s:47989/pair?uniqueid=%s&devicename=roth&updateState=1&phrase=getservercert&salt=%s&clientcert=%s", server->serverInfo.address, unique_id, salt.hex().bytes(), CryptoManager::cert_data().hex().bytes());
     
-    if ((ret = http_request(url, &data)) != GS_OK) {
+    if ((ret = http_request(url, &data, HTTPRequestTimeoutLong)) != GS_OK) {
         return gs_pair_cleanup(ret, server, &result);
     }
     
@@ -230,7 +240,7 @@ int gs_pair(PSERVER_DATA server, char* pin) {
         return gs_pair_cleanup(ret, server, &result);
     }
     
-    LOG("Start pairing stage #2\n");
+    Logger::info("Client", "Start pairing stage #2");
     
     Data plainCert = Data(result, strlen(result));
     Data aesKey;
@@ -251,7 +261,7 @@ int gs_pair(PSERVER_DATA server, char* pin) {
     
     snprintf(url, sizeof(url), "http://%s:47989/pair?uniqueid=%s&devicename=roth&updateState=1&clientchallenge=%s", server->serverInfo.address, unique_id, encryptedChallenge.hex().bytes());
     
-    if ((ret = http_request(url, &data)) != GS_OK) {
+    if ((ret = http_request(url, &data, HTTPRequestTimeoutLong)) != GS_OK) {
         return gs_pair_cleanup(ret, server, &result);
     }
     
@@ -264,7 +274,7 @@ int gs_pair(PSERVER_DATA server, char* pin) {
         return gs_pair_cleanup(ret, server, &result);
     }
     
-    LOG("Start pairing stage #3\n");
+    Logger::info("Client", "Start pairing stage #3");
     
     Data encServerChallengeResp = Data(result, strlen(result)).hex_to_bytes();
     Data decServerChallengeResp = CryptoManager::aes_decrypt(encServerChallengeResp, aesKey);
@@ -286,7 +296,7 @@ int gs_pair(PSERVER_DATA server, char* pin) {
     
     snprintf(url, sizeof(url), "http://%s:47989/pair?uniqueid=%s&devicename=roth&updateState=1&serverchallengeresp=%s", server->serverInfo.address, unique_id, challengeRespEncrypted.hex().bytes());
     
-    if ((ret = http_request(url, &data)) != GS_OK) {
+    if ((ret = http_request(url, &data, HTTPRequestTimeoutLong)) != GS_OK) {
         return gs_pair_cleanup(ret, server, &result);
     }
     
@@ -299,14 +309,14 @@ int gs_pair(PSERVER_DATA server, char* pin) {
         return gs_pair_cleanup(ret, server, &result);
     }
     
-    LOG("Start pairing stage #4\n");
+    Logger::info("Client", "Start pairing stage #4");
     
     Data serverSecretResp = Data(result, strlen(result)).hex_to_bytes();
     Data serverSecret = serverSecretResp.subdata(0, 16);
     Data serverSignature = serverSecretResp.subdata(16, 256);
     
     if (!CryptoManager::verify_signature(serverSecret, serverSignature, plainCert.hex_to_bytes())) {
-        gs_error = "MITM attack detected";
+        gs_set_error("MITM attack detected");
         ret = GS_FAILED;
         return gs_pair_cleanup(ret, server, &result);
     }
@@ -323,7 +333,7 @@ int gs_pair(PSERVER_DATA server, char* pin) {
     Data clientPairingSecret = clientSecret.append(CryptoManager::sign_data(clientSecret, CryptoManager::key_data()));
     
     snprintf(url, sizeof(url), "http://%s:47989/pair?uniqueid=%s&devicename=roth&updateState=1&clientpairingsecret=%s", server->serverInfo.address, unique_id, clientPairingSecret.hex().bytes());
-    if ((ret = http_request(url, &data)) != GS_OK) {
+    if ((ret = http_request(url, &data, HTTPRequestTimeoutLong)) != GS_OK) {
         return gs_pair_cleanup(ret, server, &result);
     }
     
@@ -331,10 +341,10 @@ int gs_pair(PSERVER_DATA server, char* pin) {
         return gs_pair_cleanup(ret, server, &result);
     }
     
-    LOG("Start pairing stage #5\n");
+    Logger::info("Client", "Start pairing stage #5");
     
     snprintf(url, sizeof(url), "https://%s:47984/pair?uniqueid=%s&devicename=roth&updateState=1&phrase=pairchallenge", server->serverInfo.address, unique_id);
-    if ((ret = http_request(url, &data)) != GS_OK) {
+    if ((ret = http_request(url, &data, HTTPRequestTimeoutLong)) != GS_OK) {
         return gs_pair_cleanup(ret, server, &result);
     }
     
@@ -354,7 +364,7 @@ int gs_applist(PSERVER_DATA server, PAPP_LIST *list) {
     
     snprintf(url, sizeof(url), "https://%s:47984/applist?uniqueid=%s", server->serverInfo.address, unique_id);
     
-    if (http_request(url, &data) != GS_OK)
+    if (http_request(url, &data, HTTPRequestTimeoutMedium) != GS_OK)
         ret = GS_IO_ERROR;
     else if (xml_status(data.bytes(), data.size()) == GS_ERROR)
         ret = GS_ERROR;
@@ -370,7 +380,7 @@ int gs_app_boxart(PSERVER_DATA server, int app_id, Data* out) {
     
     snprintf(url, sizeof(url), "https://%s:47984/appasset?uniqueid=%s&appid=%d&AssetType=2&AssetIdx=0", server->serverInfo.address, unique_id, app_id);
     
-    if (http_request(url, &data) != GS_OK) {
+    if (http_request(url, &data, HTTPRequestTimeoutMedium) != GS_OK) {
         ret = GS_IO_ERROR;
     }
     else {
@@ -387,23 +397,31 @@ int gs_start_app(PSERVER_DATA server, STREAM_CONFIGURATION *config, int appId, b
     PDISPLAY_MODE mode = server->modes;
     bool correct_mode = false;
     bool supported_resolution = false;
+    
     while (mode != NULL) {
         if (mode->width == config->width && mode->height == config->height) {
             supported_resolution = true;
-            if (mode->refresh == config->fps)
+            
+            if (mode->refresh == config->fps) {
                 correct_mode = true;
+            }
         }
 
         mode = mode->next;
     }
 
-    if (!correct_mode && !server->unsupported)
+    if (!correct_mode && !server->unsupported) {
+        gs_set_error(std::string("Mode ") + std::to_string(config->width) + "x" + std::to_string(config->height) + "x" + std::to_string(config->fps) + " not supported");
         return GS_NOT_SUPPORTED_MODE;
-    else if (sops && !supported_resolution)
+    } else if (sops && !supported_resolution) {
+        gs_set_error(std::string("Resolution ") + std::to_string(config->width) + "x" + std::to_string(config->height) + " not supported");
         return GS_NOT_SUPPORTED_SOPS_RESOLUTION;
+    }
 
-    if (config->height >= 2160 && !server->supports4K)
+    if (config->height >= 2160 && !server->supports4K) {
+        gs_set_error("4K not supported");
         return GS_NOT_SUPPORTED_4K;
+    }
     
     Data rand = Data::random_bytes(16);
     memcpy(config->remoteInputAesKey, rand.bytes(), 16);
@@ -418,10 +436,11 @@ int gs_start_app(PSERVER_DATA server, STREAM_CONFIGURATION *config, int appId, b
         int mask = config->audioConfiguration == AUDIO_CONFIGURATION_STEREO ? CHANNEL_MASK_STEREO : CHANNEL_MASK_51_SURROUND;
         int fps = sops && config->fps > 60 ? 60 : config->fps;
         snprintf(url, sizeof(url), "https://%s:47984/launch?uniqueid=%s&appid=%d&mode=%dx%dx%d&additionalStates=1&sops=%d&rikey=%s&rikeyid=%d&localAudioPlayMode=%d&surroundAudioInfo=%d&remoteControllersBitmap=%d&gcmap=%d", server->serverInfo.address, unique_id, appId, config->width, config->height, fps, sops, rand.hex().bytes(), rikeyid, localaudio, (mask << 16) + channelCounnt, gamepad_mask, gamepad_mask);
-    } else
+    } else {
         snprintf(url, sizeof(url), "https://%s:47984/resume?uniqueid=%s&rikey=%s&rikeyid=%d", server->serverInfo.address, unique_id, rand.hex().bytes(), rikeyid);
-
-    if ((ret = http_request(url, &data)) == GS_OK)
+    }
+    
+    if ((ret = http_request(url, &data, HTTPRequestTimeoutLong)) == GS_OK)
         server->currentGame = appId;
     else
         goto cleanup;
@@ -441,7 +460,6 @@ cleanup:
         free(result);
 
     return ret;
-    return GS_FAILED;
 }
 
 int gs_quit_app(PSERVER_DATA server) {
@@ -451,7 +469,7 @@ int gs_quit_app(PSERVER_DATA server) {
     Data data;
     
     snprintf(url, sizeof(url), "https://%s:47984/cancel?uniqueid=%s", server->serverInfo.address, unique_id);
-    if ((ret = http_request(url, &data)) != GS_OK)
+    if ((ret = http_request(url, &data, HTTPRequestTimeoutMedium)) != GS_OK)
         goto cleanup;
     
     if ((ret = xml_status(data.bytes(), data.size()) != GS_OK))
@@ -471,17 +489,17 @@ cleanup:
     return ret;
 }
 
-int gs_init(PSERVER_DATA server, char *address, const char *keyDirectory, int log_level, bool unsupported) {
+int gs_init(PSERVER_DATA server, char *address, const char *keyDirectory, bool unsupported) {
     if (!CryptoManager::load_cert_key_pair()) {
-        LOG("No certs, generate new...\n");
+        Logger::info("Client", "No certs, generate new...");
         
         if (!CryptoManager::generate_new_cert_key_pair()) {
-            LOG("Failed to generate certs...\n");
+            Logger::info("Client", "Failed to generate certs...");
             return GS_FAILED;
         }
     }
     
-    http_init(keyDirectory, log_level);
+    http_init(keyDirectory);
     
     LiInitializeServerInformation(&server->serverInfo);
     server->serverInfo.address = address;

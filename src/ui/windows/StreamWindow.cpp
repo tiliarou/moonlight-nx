@@ -5,10 +5,8 @@
 #include "GLVideoRenderer.hpp"
 #ifdef __SWITCH__
 #include "AudrenAudioRenderer.hpp"
-#include "AudoutAudioRenderer.hpp"
 #endif
 #include "DebugFileRecorderAudioRenderer.hpp"
-#include "Settings.hpp"
 #include "nanovg.h"
 #include <algorithm>
 #include <memory>
@@ -23,20 +21,12 @@ StreamWindow::StreamWindow(Widget *parent, const std::string &address, int app_i
     m_session->set_video_renderer(new GLVideoRenderer());
     
     #ifdef __SWITCH__
-    switch (Settings::settings()->audio_driver()) {
-        case Audren:
-            m_session->set_audio_renderer(new AudrenAudioRenderer(Settings::settings()->audio_delay()));
-            break;
-        case Audout:
-            m_session->set_audio_renderer(new AudoutAudioRenderer(Settings::settings()->audio_delay()));
-        default:
-            break;
-    }
+    m_session->set_audio_renderer(new AudrenAudioRenderer());
     #else
     m_session->set_audio_renderer(new DebugFileRecorderAudioRenderer(false));
     #endif
     
-    m_loader = add<LoadingOverlay>();
+    m_loader = add<LoadingOverlay>("Starting...");
     
     inc_ref();
     m_session->start([this](auto result) {
@@ -45,9 +35,11 @@ StreamWindow::StreamWindow(Widget *parent, const std::string &address, int app_i
             m_loader = NULL;
         }
         
-        if (result) {
+        if (result.isSuccess()) {
             //
         } else {
+            screen()->add<MessageDialog>(MessageDialog::Type::Warning, "Error", result.error());
+            
             auto app = static_cast<Application *>(screen());
             app->pop_window();
         }
@@ -72,10 +64,19 @@ void StreamWindow::draw(NVGcontext *ctx) {
     nvgRestore(ctx);
     
     if (m_session->connection_status_is_poor()) {
-        nvgFillColor(ctx, Color(255, 255, 255, 200));
         nvgFontSize(ctx, 20);
-        nvgFontFace(ctx, "icons");
         nvgTextAlign(ctx, NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE);
+        
+        nvgFontBlur(ctx, 3);
+        nvgFillColor(ctx, Color(0, 0, 0, 255));
+        nvgFontFace(ctx, "icons");
+        nvgText(ctx, 20, height() - 30, utf8(FA_EXCLAMATION_TRIANGLE).data(), NULL);
+        nvgFontFace(ctx, "sans-bold");
+        nvgText(ctx, 50, height() - 28, "Bad connection...", NULL);
+        
+        nvgFontBlur(ctx, 0);
+        nvgFillColor(ctx, Color(255, 255, 255, 255));
+        nvgFontFace(ctx, "icons");
         nvgText(ctx, 20, height() - 30, utf8(FA_EXCLAMATION_TRIANGLE).data(), NULL);
         nvgFontFace(ctx, "sans-bold");
         nvgText(ctx, 50, height() - 28, "Bad connection...", NULL);
@@ -109,23 +110,29 @@ void StreamWindow::draw(NVGcontext *ctx) {
                           (float)stats->video_decode_stats.total_decode_time / stats->video_decode_stats.decoded_frames,
                           (float)stats->video_render_stats.total_render_time / stats->video_render_stats.rendered_frames);
         
-        nvgFillColor(ctx, Color(0, 255, 0, 255));
         nvgFontFace(ctx, "sans-bold");
         nvgFontSize(ctx, 20);
         nvgTextAlign(ctx, NVG_ALIGN_LEFT | NVG_ALIGN_BOTTOM);
+        
+        nvgFontBlur(ctx, 1);
+        nvgFillColor(ctx, Color(0, 0, 0, 255));
+        nvgTextBox(ctx, 20, 30, width(), output, NULL);
+        
+        nvgFontBlur(ctx, 0);
+        nvgFillColor(ctx, Color(0, 255, 0, 255));
         nvgTextBox(ctx, 20, 30, width(), output, NULL);
     }
     
     // TODO: Get out of here...
-    if (GAME_PAD_COMBO(DOWN_FLAG)) {
+    if (InputController::controller()->gamepad_combo_is_enabled(GamepadComboExitAndClose)) {
         async([this] { this->terminate(true); });
-    } else if (GAME_PAD_COMBO(UP_FLAG)) {
+    } else if (InputController::controller()->gamepad_combo_is_enabled(GamepadComboExit)) {
         async([this] { this->terminate(false); });
     }
     
-    if (!m_draw_stats && GAME_PAD_COMBO_R(LEFT_FLAG)) {
+    if (!m_draw_stats && InputController::controller()->gamepad_combo_is_enabled(GamepadComboShowStats)) {
         m_draw_stats = true;
-    } else if (m_draw_stats && GAME_PAD_COMBO_R(RIGHT_FLAG)) {
+    } else if (m_draw_stats && InputController::controller()->gamepad_combo_is_enabled(GamepadComboHideStats)) {
         m_draw_stats = false;
     }
     

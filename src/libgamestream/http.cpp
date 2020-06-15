@@ -19,15 +19,15 @@
 
 #include "http.h"
 #include "errors.h"
+#include "client.h"
 #include "CryptoManager.hpp"
-#include "Log.h"
+#include "Logger.hpp"
 
 #include <stdbool.h>
 #include <string.h>
 #include <curl/curl.h>
 
 static CURL *curl;
-static bool debug;
 
 struct HTTP_DATA {
     char *memory;
@@ -48,16 +48,15 @@ static size_t _write_curl(void *contents, size_t size, size_t nmemb, void *userp
     return realsize;
 }
 
-int http_init(const char* key_directory, int log_level) {
+int http_init(const char* key_directory) {
     if (!curl) {
         curl_global_init(CURL_GLOBAL_ALL);
-        LOG_FMT("Curl version: %s\n", curl_version());
+        Logger::info("Curl", "%s", curl_version());
     } else {
         return GS_OK;
     }
     
     curl = curl_easy_init();
-    debug = log_level >= 2;
     
     if (!curl)
         return GS_FAILED;
@@ -82,9 +81,8 @@ int http_init(const char* key_directory, int log_level) {
     return GS_OK;
 }
 
-int http_request(char* url, Data* data) {
-    if (debug)
-        LOG_FMT("Request %s\n", url);
+int http_request(char* url, Data* data, HTTPRequestTimeout timeout) {
+    Logger::info("Curl", "Request:\n%s", url);
     
     HTTP_DATA* http_data = (HTTP_DATA*)malloc(sizeof(HTTP_DATA));
     http_data->memory = (char*)malloc(1);
@@ -92,22 +90,26 @@ int http_request(char* url, Data* data) {
     
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, http_data);
     curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, timeout);
     
     CURLcode res = curl_easy_perform(curl);
     
     if (res != CURLE_OK) {
-        gs_error = curl_easy_strerror(res);
-        LOG_FMT("Curl error: %s\n", gs_error);
+        gs_set_error(curl_easy_strerror(res));
+        Logger::error("Curl", "error: %s", gs_error().c_str());
         return GS_FAILED;
     } else if (http_data->memory == NULL) {
-        LOG("Curl error: memory = NULL\n");
+        Logger::error("Curl", "memory = NULL");
         return GS_OUT_OF_MEMORY;
     }
     
     *data = Data(http_data->memory, http_data->size);
     
-    if (debug)
-        LOG_FMT("Response:\n%s\n\n", http_data->memory);
+    if (http_data->size > 3000) {
+        Logger::info("Curl", "Response: Ok");
+    } else {
+        Logger::info("Curl", "Response:\n%s", http_data->memory);
+    }
     
     free(http_data->memory);
     free(http_data);

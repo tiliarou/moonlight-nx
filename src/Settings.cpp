@@ -1,5 +1,4 @@
 #include "Settings.hpp"
-#include "Log.h"
 #include <jansson.h>
 #include <algorithm>
 #include <string.h>
@@ -39,6 +38,8 @@ void Settings::set_working_dir(std::string working_dir) {
     m_working_dir = working_dir;
     m_key_dir = working_dir + "/key";
     m_boxart_dir = working_dir + "/boxart";
+    m_log_path = working_dir + "/log.txt";
+    m_gamepad_mapping_path = working_dir + "/gamepad_mapping.json";
     
     mkdirtree(m_working_dir.c_str());
     mkdirtree(m_key_dir.c_str());
@@ -50,6 +51,13 @@ void Settings::set_working_dir(std::string working_dir) {
 void Settings::add_host(const std::string address) {
     if (std::find(m_hosts.begin(), m_hosts.end(), address) == m_hosts.end()) {
         m_hosts.push_back(address);
+        save();
+    }
+}
+
+void Settings::remove_host(const std::string address) {
+    if (std::find(m_hosts.begin(), m_hosts.end(), address) != m_hosts.end()) {
+        m_hosts.erase(std::remove(m_hosts.begin(), m_hosts.end(), address), m_hosts.end());
         save();
     }
 }
@@ -84,7 +92,7 @@ void Settings::load() {
             
             if (json_t* video_codec = json_object_get(settings, "video_codec")) {
                 if (json_typeof(video_codec) == JSON_INTEGER) {
-                    m_video_codec = (MVideoCodec)json_integer_value(video_codec);
+                    m_video_codec = (VideoCodec)json_integer_value(video_codec);
                 }
             }
             
@@ -94,12 +102,8 @@ void Settings::load() {
                 }
             }
             
-            if (json_t* swap_ab_xy = json_object_get(settings, "swap_ab_xy")) {
-                if (json_typeof(swap_ab_xy) == JSON_TRUE) {
-                    m_swap_ab_xy = true;
-                } else if (json_typeof(swap_ab_xy) == JSON_FALSE) {
-                    m_swap_ab_xy = false;
-                }
+            if (json_t* click_by_tap = json_object_get(settings, "click_by_tap")) {
+                m_click_by_tap = json_typeof(click_by_tap) == JSON_TRUE;
             }
             
             if (json_t* decoder_threads = json_object_get(settings, "decoder_threads")) {
@@ -108,16 +112,16 @@ void Settings::load() {
                 }
             }
             
-            if (json_t* audio_driver = json_object_get(settings, "audio_driver")) {
-                if (json_typeof(audio_driver) == JSON_INTEGER) {
-                    m_audio_driver = (MAudioDriver)json_integer_value(audio_driver);
-                }
+            if (json_t* sops = json_object_get(settings, "sops")) {
+                m_sops = json_typeof(sops) == JSON_TRUE;
             }
             
-            if (json_t* audio_delay = json_object_get(settings, "audio_delay")) {
-                if (json_typeof(audio_delay) == JSON_INTEGER) {
-                    m_audio_delay = (int)json_integer_value(audio_delay);
-                }
+            if (json_t* play_audio = json_object_get(settings, "play_audio")) {
+                m_play_audio = json_typeof(play_audio) == JSON_TRUE;
+            }
+            
+            if (json_t* write_log = json_object_get(settings, "write_log")) {
+                m_write_log = json_typeof(write_log) == JSON_TRUE;
             }
         }
         
@@ -142,16 +146,10 @@ void Settings::save() {
             json_object_set(settings, "video_codec", json_integer(m_video_codec));
             json_object_set(settings, "bitrate", json_integer(m_bitrate));
             json_object_set(settings, "decoder_threads", json_integer(m_decoder_threads));
-            
-            if (m_swap_ab_xy) {
-                json_object_set(settings, "swap_ab_xy", json_true());
-            } else {
-                json_object_set(settings, "swap_ab_xy", json_false());
-            }
-            
-            json_object_set(settings, "audio_driver", json_integer(m_audio_driver));
-            json_object_set(settings, "audio_delay", json_integer(m_audio_delay));
-            
+            json_object_set(settings, "click_by_tap", m_click_by_tap ? json_true() : json_false());
+            json_object_set(settings, "sops", m_sops ? json_true() : json_false());
+            json_object_set(settings, "play_audio", m_play_audio ? json_true() : json_false());
+            json_object_set(settings, "write_log", m_write_log ? json_true() : json_false());
             json_object_set(root, "settings", settings);
         }
         

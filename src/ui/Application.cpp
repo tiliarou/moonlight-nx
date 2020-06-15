@@ -2,8 +2,11 @@
 #include "MainWindow.hpp"
 #include "AddHostWindow.hpp"
 #include "StreamWindow.hpp"
+#include <nanogui/opengl.h>
 
 using namespace nanogui;
+
+extern int moonlight_exit;
 
 Application::Application(Vector2f size, Vector2f framebuffer_size): Screen(size, framebuffer_size) {
     theme()->m_standard_font_size = 24;
@@ -62,9 +65,39 @@ void Application::pop_window() {
         m_windows.back()->set_visible(true);
         update_focus(m_windows.back());
         perform_layout();
+        
+        if (auto w = static_cast<ContentWindow *>(m_windows.back())) {
+            w->window_appear();
+        }
+    }
+}
+
+void Application::resize_callback_event(int width, int height, int fb_width, int fb_height) {
+    for (auto window: m_windows) {
+        window->set_size(Size(width, height));
+        window->set_fixed_size(Size(width, height));
+    }
+    Screen::resize_callback_event(width, height, fb_width, fb_height);
+    perform_layout();
+}
+
+void Application::gamepad_button_callback_event(int jid, int button, int action) {
+    if (!m_windows.empty()) {
+        m_windows.back()->gamepad_button_event(jid, button, action);
     }
     
-    if (auto w = static_cast<ContentWindow *>(m_windows.front())) {
-        w->window_appear();
+    if (action && button == NANOGUI_GAMEPAD_BUTTON_START && m_windows.size() == 1) {
+        moonlight_exit = 1;
     }
+}
+
+void Application::gamepad_analog_callback_event(int jid, int axis, float value) {
+    if (!m_windows.empty()) {
+        m_windows.back()->gamepad_analog_event(jid, axis, value);
+    }
+}
+
+void Application::perform_layout() {
+    m_focus_path.clear();
+    Screen::perform_layout();
 }

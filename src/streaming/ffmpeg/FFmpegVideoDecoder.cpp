@@ -1,13 +1,13 @@
 #include "FFmpegVideoDecoder.hpp"
 #include "Settings.hpp"
-#include "Log.h"
+#include "Logger.hpp"
 
 // Disables the deblocking filter at the cost of image quality
 #define DISABLE_LOOP_FILTER 0x1
 // Uses the low latency decode flag (disables multithreading)
 #define LOW_LATENCY_DECODE 0x2
 
-#define DECODER_BUFFER_SIZE 92 * 1024
+#define DECODER_BUFFER_SIZE 92 * 1024 * 2
 
 FFmpegVideoDecoder::FFmpegVideoDecoder() {
     pthread_mutex_init(&m_mutex, NULL);
@@ -44,13 +44,13 @@ int FFmpegVideoDecoder::setup(int video_format, int width, int height, int redra
     }
     
     if (m_decoder == NULL) {
-        LOG("Couldn't find decoder\n");
+        Logger::error("FFmpeg", "Couldn't find decoder");
         return -1;
     }
     
     m_decoder_context = avcodec_alloc_context3(m_decoder);
     if (m_decoder_context == NULL) {
-        LOG("Couldn't allocate context\n");
+        Logger::error("FFmpeg", "Couldn't allocate context");
         return -1;
     }
     
@@ -77,28 +77,28 @@ int FFmpegVideoDecoder::setup(int video_format, int width, int height, int redra
     
     int err = avcodec_open2(m_decoder_context, m_decoder, NULL);
     if (err < 0) {
-        LOG("Couldn't open codec\n");
+        Logger::error("FFmpeg", "Couldn't open codec");
         return err;
     }
     
     m_frames_count = 2;
     m_frames = (AVFrame**)malloc(m_frames_count * sizeof(AVFrame*));
     if (m_frames == NULL) {
-        LOG("Couldn't allocate frames\n");
+        Logger::error("FFmpeg", "Couldn't allocate frames");
         return -1;
     }
     
     for (int i = 0; i < m_frames_count; i++) {
         m_frames[i] = av_frame_alloc();
         if (m_frames[i] == NULL) {
-            LOG("Couldn't allocate frame\n");
+            Logger::error("FFmpeg", "Couldn't allocate frame");
             return -1;
         }
     }
     
     m_ffmpeg_buffer = (char*)malloc(DECODER_BUFFER_SIZE + AV_INPUT_BUFFER_PADDING_SIZE);
     if (m_ffmpeg_buffer == NULL) {
-        LOG("Not enough memory\n");
+        Logger::error("FFmpeg", "Not enough memory");
         cleanup();
         return -1;
     }
@@ -164,6 +164,10 @@ int FFmpegVideoDecoder::submit_decode_unit(PDECODE_UNIT decode_unit) {
         
         uint64_t before_decode = LiGetMillis();
         
+        if (length > DECODER_BUFFER_SIZE) {
+            Logger::error("FFmpeg", "Big buffer to decode...");
+        }
+        
         if (decode(m_ffmpeg_buffer, length) == 0) {
             m_frames_out++;
             
@@ -186,7 +190,7 @@ int FFmpegVideoDecoder::submit_decode_unit(PDECODE_UNIT decode_unit) {
 }
 
 int FFmpegVideoDecoder::capabilities() const {
-    return CAPABILITY_SLICES_PER_FRAME(4) | CAPABILITY_REFERENCE_FRAME_INVALIDATION_AVC | CAPABILITY_REFERENCE_FRAME_INVALIDATION_HEVC | CAPABILITY_DIRECT_SUBMIT;
+    return CAPABILITY_SLICES_PER_FRAME(4) | CAPABILITY_DIRECT_SUBMIT;
 }
 
 int FFmpegVideoDecoder::decode(char* indata, int inlen) {
@@ -197,7 +201,7 @@ int FFmpegVideoDecoder::decode(char* indata, int inlen) {
     if (err < 0) {
         char error[512];
         av_strerror(err, error, sizeof(error));
-        LOG_FMT("Decode failed - %s\n", error);
+        Logger::error("FFmpeg", "Decode failed - %s", error);
     }
     
     return err < 0 ? err : 0;
@@ -214,7 +218,7 @@ AVFrame* FFmpegVideoDecoder::get_frame(bool native_frame) {
     } else if (err != AVERROR(EAGAIN)) {
         char error[512];
         av_strerror(err, error, sizeof(error));
-        LOG_FMT("Receive failed - %d/%s\n", err, error);
+        Logger::error("FFmpeg", "Receive failed - %d/%s", err, error);
     }
     return NULL;
 }

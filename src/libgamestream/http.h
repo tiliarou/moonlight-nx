@@ -21,5 +21,11 @@
 
 #include "Data.hpp"
 
-int http_init(const char* key_directory, int log_level);
-int http_request(char* url, Data* data);
+enum HTTPRequestTimeout: long {
+    HTTPRequestTimeoutLow = 5,
+    HTTPRequestTimeoutMedium = 15,
+    HTTPRequestTimeoutLong = 120
+};
+
+int http_init(const char* key_directory);
+int http_request(char* url, Data* data, HTTPRequestTimeout timeout);

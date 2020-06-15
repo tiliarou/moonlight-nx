@@ -3,17 +3,9 @@
 #include <vector>
 #pragma once
 
-#define MOONLIGHT_LIBRETRO_VERSION "1.0.5"
-
-enum MVideoCodec: int {
+enum VideoCodec: int {
     H264,
     H265
-};
-
-enum MAudioDriver: int {
-    NoAudio,
-    Audren,
-    Audout
 };
 
 class Settings {
@@ -33,11 +25,20 @@ public:
         return m_boxart_dir;
     }
     
+    std::string log_path() const {
+        return m_log_path;
+    }
+    
+    std::string gamepad_mapping_path() const {
+        return m_gamepad_mapping_path;
+    }
+    
     std::vector<std::string> hosts() const {
         return m_hosts;
     }
     
     void add_host(const std::string address);
+    void remove_host(const std::string address);
     
     int resolution() const {
         return m_resolution;
@@ -55,11 +56,11 @@ public:
         m_fps = fps;
     }
     
-    MVideoCodec video_codec() const {
+    VideoCodec video_codec() const {
         return m_video_codec;
     }
     
-    void set_video_codec(MVideoCodec video_codec) {
+    void set_video_codec(VideoCodec video_codec) {
         m_video_codec = video_codec;
     }
     
@@ -71,12 +72,12 @@ public:
         m_bitrate = bitrate;
     }
     
-    bool swap_ab_xy() const {
-        return m_swap_ab_xy;
+    bool click_by_tap() const {
+        return m_click_by_tap;
     }
     
-    void set_swap_ab_xy(bool swap_ab_xy) {
-        m_swap_ab_xy = swap_ab_xy;
+    void set_click_by_tap(bool click_by_tap) {
+        m_click_by_tap = click_by_tap;
     }
     
     void set_decoder_threads(int decoder_threads) {
@@ -87,20 +88,28 @@ public:
         return m_decoder_threads;
     }
     
-    void set_audio_driver(MAudioDriver audio_driver) {
-        m_audio_driver = audio_driver;
+    void set_sops(int sops) {
+        m_sops = sops;
     }
     
-    MAudioDriver audio_driver() const {
-        return m_audio_driver;
+    bool sops() const {
+        return m_sops;
     }
     
-    void set_audio_delay(int audio_delay) {
-        m_audio_delay = audio_delay;
+    void set_play_audio(int play_audio) {
+        m_play_audio = play_audio;
     }
     
-    int audio_delay() const {
-        return m_audio_delay;
+    bool play_audio() const {
+        return m_play_audio;
+    }
+    
+    void set_write_log(int write_log) {
+        m_write_log = write_log;
+    }
+    
+    bool write_log() const {
+        return m_write_log;
     }
     
     void load();
@@ -112,14 +121,17 @@ private:
     std::string m_working_dir;
     std::string m_key_dir;
     std::string m_boxart_dir;
+    std::string m_log_path;
+    std::string m_gamepad_mapping_path;
     
     std::vector<std::string> m_hosts;
     int m_resolution = 720;
     int m_fps = 60;
-    MVideoCodec m_video_codec = H264;
+    VideoCodec m_video_codec = H264;
     int m_bitrate = 10000;
-    bool m_swap_ab_xy = true;
+    bool m_click_by_tap = false;
     int m_decoder_threads = 4;
-    MAudioDriver m_audio_driver = Audren;
-    int m_audio_delay = 50;
+    bool m_sops = true;
+    bool m_play_audio = false;
+    bool m_write_log = false;
 };

@@ -41,7 +41,7 @@ TARGET		:=	moonlight
 APP_TITLE	:= Moonlight
 ICON		:= icon.jpg
 APP_AUTHOR	:= port by rock88
-APP_VERSION	:= 1.0.5
+APP_VERSION	:= 1.1.0
 BUILD		:=	build
 SOURCES		:=	src src/libgamestream src/switch src/nanogui_resources src/streaming src/streaming/ffmpeg \
 	src/crypto src/streaming/video src/crypto src/streaming/audio src/ui/windows src/ui/buttons src/ui \
@@ -50,6 +50,12 @@ SOURCES		:=	src src/libgamestream src/switch src/nanogui_resources src/streaming
 DATA		:=	data
 INCLUDES	:=	include
 #ROMFS	:=	romfs
+
+ifdef NIGHTLY_BUILD
+	MOONLIGHT_VERSION := "$(APP_VERSION)($(NIGHTLY_BUILD))"
+else
+	MOONLIGHT_VERSION := "$(APP_VERSION)"
+endif
 
 #---------------------------------------------------------------------------------
 # options for code generation
@@ -69,7 +75,7 @@ M_INCLUDES := \
 	-I$(TOPDIR)/third_party/nanogui/ext/nanovg/src
 
 DEFINES := -DNANOGUI_USE_OPENGL -DNVG_STB_IMAGE_IMPLEMENTATION -DNANOGUI_NO_GLFW \
-	-DHAS_SOCKLEN_T -DHAS_POLL -DHAS_FCNTL -D_GNU_SOURCE -DUSE_MBEDTLS_CRYPTO
+	-DHAS_SOCKLEN_T -DHAS_POLL -DHAS_FCNTL -D_GNU_SOURCE -DUSE_MBEDTLS_CRYPTO -DMOONLIGHT_VERSION=\"$(MOONLIGHT_VERSION)\"
 
 CFLAGS	:=	-Wall -O3 -ffunction-sections $(ARCH) $(DEFINES) $(INCLUDE) $(M_INCLUDES) -D__SWITCH__
 CXXFLAGS	:= $(CFLAGS) -std=gnu++17
@@ -82,12 +88,10 @@ LIBS	:= -lcurl -lmbedtls -lmbedx509 -lmbedcrypto \
 	-lglad -lEGL -lglapi -ldrm_nouveau -lglfw3 \
 	-lnx -lswresample -lvpx -ljansson
 
-LIBGAMESTREAM_C_SOURCES = \
-	xml.c
-
 LIBGAMESTREAM_CPP_SOURCES = \
 	client.cpp \
-	http.cpp
+	http.cpp \
+	xml.cpp
 
 MOONLIGHT_LIBRETRO_C_SOURCES = \
 	nanogui_resources.c \
@@ -116,8 +120,11 @@ MOONLIGHT_LIBRETRO_CXX_SOURCES = \
 	MbedTLSCryptoManager.cpp \
 	mbedtls_to_openssl_wrapper.cpp \
 	AudrenAudioRenderer.cpp \
-	AudoutAudioRenderer.cpp \
-	BoxArtManager.cpp
+	BoxArtManager.cpp \
+	Logger.cpp \
+	LogsWindow.cpp \
+	GamepadMapper.cpp \
+	InputSettingsWindow.cpp
 
 MOONLIGHT_COMMON_C_SOURCES = \
 	callbacks.c \
@@ -208,7 +215,7 @@ export VPATH	:=	$(foreach dir,$(SOURCES),$(CURDIR)/$(dir)) \
 
 export DEPSDIR	:=	$(CURDIR)/$(BUILD)
 
-CFILES		:=	$(LIBGAMESTREAM_C_SOURCES) $(MOONLIGHT_LIBRETRO_C_SOURCES) $(MOONLIGHT_COMMON_C_SOURCES) $(NANOGUI_C_SOURCES)
+CFILES		:=	$(MOONLIGHT_LIBRETRO_C_SOURCES) $(MOONLIGHT_COMMON_C_SOURCES) $(NANOGUI_C_SOURCES)
 CPPFILES	:=	$(LIBGAMESTREAM_CPP_SOURCES) $(MOONLIGHT_LIBRETRO_CXX_SOURCES) $(NANOGUI_CXX_SOURCES)
 SFILES		:=	$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.s)))
 BINFILES	:=	$(foreach dir,$(DATA),$(notdir $(wildcard $(dir)/*.*)))

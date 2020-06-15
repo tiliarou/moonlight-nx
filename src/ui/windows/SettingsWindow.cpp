@@ -1,5 +1,6 @@
 #include "SettingsWindow.hpp"
 #include "Settings.hpp"
+#include "LogsWindow.hpp"
 
 using namespace nanogui;
 
@@ -23,10 +24,10 @@ SettingsWindow::SettingsWindow(nanogui::Widget* parent): ContentWindow(parent, "
     set_box_layout(Orientation::Horizontal, Alignment::Minimum);
     
     int container_width = 380;
-    int component_width = 200;
+    int component_width = 290;
     
     auto left_container = container()->add<Widget>();
-    left_container->set_layout(new GroupLayout(30, 10, 40, 10));
+    left_container->set_layout(new GroupLayout(30, 10, 30, 10));
     left_container->set_fixed_width(container_width);
     
     left_container->add<Label>("Resolution");
@@ -68,7 +69,7 @@ SettingsWindow::SettingsWindow(nanogui::Widget* parent): ContentWindow(parent, "
     }
     
     left_container->add<Label>("Video codec");
-    std::vector<std::string> video_codec = { "H.264", "HEVC (H.265)" };
+    std::vector<std::string> video_codec = { "H.264", "HEVC (H.265, Experimental)" };
     auto video_codec_combo_box = left_container->add<ComboBox>(video_codec);
     video_codec_combo_box->set_fixed_width(component_width);
     video_codec_combo_box->popup()->set_fixed_width(component_width);
@@ -91,6 +92,7 @@ SettingsWindow::SettingsWindow(nanogui::Widget* parent): ContentWindow(parent, "
     
     auto video_bitrate_label = left_container->add<Label>(bitrate_str);
     auto video_bitrate_slider = left_container->add<Slider>();
+    video_bitrate_slider->set_step(0.5);
     video_bitrate_slider->set_highlight_color(Color(62, 78, 184, 255));
     video_bitrate_slider->set_range({0.5, 150});
     video_bitrate_slider->set_value(float(Settings::settings()->bitrate()) / 1000);
@@ -106,15 +108,15 @@ SettingsWindow::SettingsWindow(nanogui::Widget* parent): ContentWindow(parent, "
     });
     
     left_container->add<Label>("Input Settings");
-    auto swap_input = left_container->add<CheckBox>("Swap A/B and X/Y");
-    swap_input->set_checked(Settings::settings()->swap_ab_xy());
-    swap_input->set_callback([](auto value) {
-        Settings::settings()->set_swap_ab_xy(value);
+    auto click_by_tap = left_container->add<CheckBox>("Mouse click by tap on screen");
+    click_by_tap->set_checked(Settings::settings()->click_by_tap());
+    click_by_tap->set_callback([](auto value) {
+        Settings::settings()->set_click_by_tap(value);
     });
     
     auto right_container = container()->add<Widget>();
-    right_container->set_layout(new GroupLayout(30, 10));
-    right_container->set_fixed_width(580);
+    right_container->set_layout(new GroupLayout(30, 10, 30, 10));
+    right_container->set_fixed_width(container_width + 90);
     
     right_container->add<Label>("Decoder Threads");
     std::vector<std::string> decoder_threads = { "0 (No use threads)", "2", "3", "4" };
@@ -139,61 +141,31 @@ SettingsWindow::SettingsWindow(nanogui::Widget* parent): ContentWindow(parent, "
         DEFAULT;
     }
     
-    right_container->add<Label>("Audio Driver");
-    std::vector<std::string> audio_drivers = { "No Audio", "Audren", "Audout" };
-    auto audio_drivers_combo_box = right_container->add<ComboBox>(audio_drivers);
-    audio_drivers_combo_box->set_fixed_width(component_width);
-    audio_drivers_combo_box->popup()->set_fixed_width(component_width);
-    audio_drivers_combo_box->set_callback([](auto value) {
-        switch (value) {
-            SET_SETTING(0, set_audio_driver(NoAudio));
-            SET_SETTING(1, set_audio_driver(Audren));
-            SET_SETTING(2, set_audio_driver(Audout));
-            DEFAULT;
-        }
+    right_container->add<Label>("Stream Settings");
+    auto sops = right_container->add<CheckBox>("Use Streaming Optimal Playable Settings");
+    sops->set_checked(Settings::settings()->sops());
+    sops->set_callback([](auto value) {
+        Settings::settings()->set_sops(value);
     });
     
-    switch (Settings::settings()->audio_driver()) {
-        GET_SETTINGS(audio_drivers_combo_box, NoAudio, 0);
-        GET_SETTINGS(audio_drivers_combo_box, Audren, 1);
-        GET_SETTINGS(audio_drivers_combo_box, Audout, 2);
-        DEFAULT;
-    }
-    
-    right_container->add<Label>("Audio Delay (low value = low delay, but sound may be flickered)");
-    std::vector<std::string> audio_delays = { "10", "20", "30", "40", "50", "60", "70", "80", "90", "100" };
-    auto audio_delays_combo_box = right_container->add<ComboBox>(audio_delays);
-    audio_delays_combo_box->set_fixed_width(component_width);
-    audio_delays_combo_box->popup()->set_fixed_width(component_width);
-    audio_delays_combo_box->set_callback([](auto value) {
-        switch (value) {
-            SET_SETTING(0, set_audio_delay(10));
-            SET_SETTING(1, set_audio_delay(20));
-            SET_SETTING(2, set_audio_delay(30));
-            SET_SETTING(3, set_audio_delay(40));
-            SET_SETTING(4, set_audio_delay(50));
-            SET_SETTING(5, set_audio_delay(60));
-            SET_SETTING(6, set_audio_delay(70));
-            SET_SETTING(7, set_audio_delay(80));
-            SET_SETTING(8, set_audio_delay(90));
-            SET_SETTING(9, set_audio_delay(100));
-            DEFAULT;
-        }
+    auto play_audio = right_container->add<CheckBox>("Play Audio on PC");
+    play_audio->set_checked(Settings::settings()->play_audio());
+    play_audio->set_callback([](auto value) {
+        Settings::settings()->set_play_audio(value);
     });
     
-    switch (Settings::settings()->audio_delay()) {
-        GET_SETTINGS(audio_delays_combo_box, 10, 0);
-        GET_SETTINGS(audio_delays_combo_box, 20, 1);
-        GET_SETTINGS(audio_delays_combo_box, 30, 2);
-        GET_SETTINGS(audio_delays_combo_box, 40, 3);
-        GET_SETTINGS(audio_delays_combo_box, 50, 4);
-        GET_SETTINGS(audio_delays_combo_box, 60, 5);
-        GET_SETTINGS(audio_delays_combo_box, 70, 6);
-        GET_SETTINGS(audio_delays_combo_box, 80, 7);
-        GET_SETTINGS(audio_delays_combo_box, 90, 8);
-        GET_SETTINGS(audio_delays_combo_box, 100, 9);
-        DEFAULT;
-    }
+    right_container->add<Label>("Debug");
+    auto write_log = right_container->add<CheckBox>("Write log");
+    write_log->set_checked(Settings::settings()->write_log());
+    write_log->set_callback([](auto value) {
+        Settings::settings()->set_write_log(value);
+    });
+    
+    auto log_button = right_container->add<Button>("Show logs");
+    log_button->set_fixed_width(component_width);
+    log_button->set_callback([this] {
+        push<LogsWindow>();
+    });
 }
 
 void SettingsWindow::window_disappear() {
